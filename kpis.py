@@ -81,7 +81,9 @@ client_id_to_find = 7338123
 client_data = df_demo_sorted[df_demo_sorted['client_id'] == client_id_to_find]
 print(client_data.to_string())
 
-## ERROR RATES - PART NOT UPDATED..
+## ERROR RATES - UPDATED..
+
+df_demo
 
 step_order = {
     'start': 0,
@@ -91,24 +93,29 @@ step_order = {
     'confirm': 4
 }
 
-df_demo_sorted['step_num'] = df_demo_sorted['process_step'].map(step_order)
+df_demo['step_order'] = df_demo['process_step'].map(step_order)
 
-df_demo_sorted['next_step_num'] = df_demo_sorted.groupby('visit_id')['step_num'].shift(-1)
+df_demo = df_demo.sort_values(by=['visitor_id', 'date_time'])
 
-df_demo_sorted['backward_move'] = df_demo_sorted['next_step_num'] < df_demo_sorted['step_num']
+df_demo['prev_step_order'] = df_demo.groupby('visitor_id')['step_order'].shift(1)
+df_demo['error'] = df_demo['step_order'] < df_demo['prev_step_order']
 
-num_backward_moves = df_demo_sorted['backward_move'].sum()
-print(f"Number of backward moves (possible errors): {num_backward_moves}")
+error_summary = df_demo.groupby(['process_step', 'Variation'], observed = True).agg(
+    total=('error', 'count'),
+    errors=('error', 'sum')
+).reset_index()
 
-visits_with_backward = df_demo_sorted.loc[df_demo_sorted['backward_move'], 'visit_id'].unique()
-print(f"Visits with backward moves: {len(visits_with_backward)}")
+error_summary['error_rate'] = error_summary['errors'] / error_summary['total']
 
-df_demo_sorted
+error_summary = error_summary.sort_values(by=['process_step', 'Variation'])
 
-#Redesign Order.. 
+error_summary['step_order'] = error_summary['process_step'].map(step_order)
+
+variation_order = ['Control', 'Test']
+error_summary['Variation'] = pd.Categorical(error_summary['Variation'], categories=variation_order, ordered=True)
+
+error_summary = error_summary.sort_values(by=['Variation', 'step_order']).reset_index(drop=True)
+
+error_summary
 
 
-
-
-
-print("null values per column ", df_step_duration.isnull().sum())
