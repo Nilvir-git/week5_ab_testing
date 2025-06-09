@@ -6,61 +6,73 @@ df_demo
 
 print("null values per column ", df_demo.isnull().sum())
 
-## SUCCESS INDICATORS considering df_demo (contains all demographics but not all web data)
+#remove Variation: Not in test
 
-df_demo['process_step'].value_counts()
+df_demo = df_demo[df_demo['Variation'] != 'Not in test']
 
-start_count = df_demo[df_demo['process_step'] == 'start']['client_id'].nunique()
-confirm_count = df_demo[df_demo['process_step'] == 'confirm']['client_id'].nunique()
-
-completion_rate = confirm_count / start_count
-print(f"Completion rate considering all Variations: {completion_rate:.2%}")
-
-df_demo['Variation'].value_counts()
-
-# calculating completion rate excluding 'Not in test' variation
-
-df_filtered = df_demo[df_demo['Variation'] != 'Not in test']
-
-start_count = df_filtered[df_filtered['process_step'] == 'start']['client_id'].nunique()
-confirm_count = df_filtered[df_filtered['process_step'] == 'confirm']['client_id'].nunique()
-
-completion_rate = confirm_count / start_count
-print(f"Completion Rate (excluding 'Not in test'): {completion_rate:.2%}")
+df_demo
 
 df_demo.dtypes
 
 # Convert 'date_time' to datetime format
 df_demo['date_time'] = pd.to_datetime(df_demo['date_time'])
 
+
+## SUCCESS INDICATORS considering df_demo (contains all demographics but not all web data)
+
+#completion rate using client_id, and filtering by test and control variation:
+
+start_counts_cli = df_demo[df_demo['process_step'] == 'start'].groupby('Variation')['client_id'].nunique()
+
+confirm_counts_cli = df_demo[df_demo['process_step'] == 'confirm'].groupby('Variation')['client_id'].nunique()
+
+completion_rate_cli = (confirm_counts_cli / start_counts_cli).fillna(0)
+
+print(f"Completion rate by Variation using client_id: {completion_rate_cli}")
+
+
+#completion rate using visit_id instead of client_id, and filtering by test and control variation:
+
+start_counts_visit = df_demo[df_demo['process_step'] == 'start'].groupby('Variation')['visit_id'].nunique()
+
+confirm_counts_visit = df_demo[df_demo['process_step'] == 'confirm'].groupby('Variation')['visit_id'].nunique()
+
+completion_rate_visit = (confirm_counts_visit / start_counts_visit).fillna(0)
+
+print(f"Completion rate by Variation using visit_id: {completion_rate_visit}")
+
+#results are actually quite different.. probably makes more sense to use by visit_id.
+
+
+#sort values by visit_id and date_time
+
+df_demo = df_demo.sort_values(by=['visit_id', 'date_time'])
+
+#addition columns
+df_demo['next_time'] = df_demo.groupby('visit_id')['date_time'].shift(-1)
+
+df_demo['duration'] = (df_demo['next_time'] - df_demo['date_time']).dt.total_seconds()
+
+df_demo
+
 #Time spend on each step:
 
-df_demo_sorted = df_demo.sort_values(by=['visit_id', 'date_time'])
-df_demo_sorted['next_time'] = df_demo_sorted.groupby('visit_id')['date_time'].shift(-1)
-df_demo_sorted['duration'] = (df_demo_sorted['next_time'] - df_demo_sorted['date_time']).dt.total_seconds()
-df_step_duration = df_demo_sorted.dropna(subset=['duration'])
+variation_order = ['Control', 'Test']
+step_order = ['start', 'step_1', 'step_2', 'step_3', 'confirm']
 
-df_demo_sorted
+df_demo['Variation'] = pd.Categorical(df_demo['Variation'], categories = variation_order, ordered=True)
+df_demo['process_step'] = pd.Categorical(df_demo['process_step'], categories = step_order, ordered=True)
 
-avg_time_per_step = df_step_duration.groupby('process_step')['duration'].mean().sort_values()
-print(f"Average time spend per process step in seconds is: {avg_time_per_step}")
-
-
-#Time spend on each step (excluding 'Not in test' variation):
-
-df_filtered = df_demo_sorted[df_demo_sorted['Variation'] != 'Not in test']
-
-df_filtered = df_filtered.dropna(subset=['duration'])
-
-avg_time_per_step_filtered = df_filtered.groupby('process_step')['duration'].mean().sort_values()
-
-print(f"Average time per step (seconds), excluding 'Not in test':{avg_time_per_step_filtered}")
-
+avg_time_per_step_by_variation = (
+    df_demo
+    .groupby(['Variation', 'process_step'])['duration']
+    .mean()
+    .round(2)
+    .sort_index()
+)
+print(f"Average time spend per process step in seconds is: {avg_time_per_step_by_variation}")
 
 ###
-
-nan_count_confirm = df_demo_sorted.loc[df_demo_sorted['process_step'] == 'confirm', 'duration'].isna().sum()
-print(f"Number of NaN values in 'duration' for 'confirm' step: {nan_count_confirm}")
 
 
 #client_id to find
@@ -69,7 +81,9 @@ client_id_to_find = 7338123
 client_data = df_demo_sorted[df_demo_sorted['client_id'] == client_id_to_find]
 print(client_data.to_string())
 
-## ERROR RATES
+## ERROR RATES - UPDATED..
+
+df_demo
 
 step_order = {
     'start': 0,
@@ -79,18 +93,29 @@ step_order = {
     'confirm': 4
 }
 
-df_demo_sorted['step_num'] = df_demo_sorted['process_step'].map(step_order)
+df_demo['step_order'] = df_demo['process_step'].map(step_order)
 
-df_demo_sorted['next_step_num'] = df_demo_sorted.groupby('visit_id')['step_num'].shift(-1)
+df_demo = df_demo.sort_values(by=['visitor_id', 'date_time'])
 
-df_demo_sorted['backward_move'] = df_demo_sorted['next_step_num'] < df_demo_sorted['step_num']
+df_demo['prev_step_order'] = df_demo.groupby('visitor_id')['step_order'].shift(1)
+df_demo['error'] = df_demo['step_order'] < df_demo['prev_step_order']
 
-num_backward_moves = df_demo_sorted['backward_move'].sum()
-print(f"Number of backward moves (possible errors): {num_backward_moves}")
+error_summary = df_demo.groupby(['process_step', 'Variation'], observed = True).agg(
+    total=('error', 'count'),
+    errors=('error', 'sum')
+).reset_index()
 
-visits_with_backward = df_demo_sorted.loc[df_demo_sorted['backward_move'], 'visit_id'].unique()
-print(f"Visits with backward moves: {len(visits_with_backward)}")
+error_summary['error_rate'] = error_summary['errors'] / error_summary['total']
 
-df_demo_sorted
+error_summary = error_summary.sort_values(by=['process_step', 'Variation'])
 
-#Redesign Order.. 
+error_summary['step_order'] = error_summary['process_step'].map(step_order)
+
+variation_order = ['Control', 'Test']
+error_summary['Variation'] = pd.Categorical(error_summary['Variation'], categories=variation_order, ordered=True)
+
+error_summary = error_summary.sort_values(by=['Variation', 'step_order']).reset_index(drop=True)
+
+error_summary
+
+
