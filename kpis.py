@@ -1,6 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+from matplotlib.cm import get_cmap
 import numpy as np
 import seaborn as sns
 
@@ -253,7 +254,35 @@ error_summary['Variation'] = pd.Categorical(error_summary['Variation'], categori
 
 error_summary = error_summary.sort_values(by=['Variation', 'step_order']).reset_index(drop=True)
 
-error_summary
+print(error_summary)
+
+### VISUALIZATION ERROR RATES
+
+viridis = get_cmap('viridis')
+custom_palette = {
+    'Control': viridis(0.25),  # blue-ish
+    'Test': viridis(0.65)      # green-ish
+}
+
+# Plot error_rate by process_step and Variation
+sns.set(style='whitegrid')
+
+sns.lineplot(
+    data=error_summary,
+    x='process_step',
+    y='error_rate',
+    hue='Variation',
+    marker='o',
+    palette=custom_palette
+)
+
+plt.title("Error Rate by Process Step and Variation")
+plt.xlabel("Process Step")
+plt.ylabel("Error Rate")
+plt.ylim(0, error_summary['error_rate'].max() * 1.2)
+plt.tight_layout()
+plt.show()
+
 
 
 df_demo.head()
